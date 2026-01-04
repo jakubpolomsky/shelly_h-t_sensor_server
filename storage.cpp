@@ -34,10 +34,29 @@
 #include <cctype>
 #include <iterator>
 
+#include <unordered_map>
+#include <unordered_set>
+#include <mutex>
+#include <thread>
+#include <condition_variable>
+#include <atomic>
+#include <chrono>
+
 // define DATA_DIR default
 std::string DATA_DIR = "data";
 // define SETTINGS_JSON_FILE default
 std::string SETTINGS_JSON_FILE = "settings.json";
+
+// in-memory cache for latest readings (sensor id -> JSON payload)
+static std::unordered_map<std::string, std::string> in_memory_readings;
+static std::mutex in_memory_mutex;
+
+// flusher thread control
+static std::thread flusher_thread;
+static std::atomic<bool> flusher_running(false);
+static std::condition_variable flusher_cv;
+static std::mutex flusher_mutex;
+static int flusher_interval_seconds = 3600; // default: 1 hour
 
 bool ensure_data_dir_exists() {
     struct stat st{};
@@ -58,17 +77,21 @@ std::string sanitize_id(const std::string &id) {
 }
 
 bool save_sensor_data(const std::string &id, const std::string &body) {
-    if (!ensure_data_dir_exists()) return false;
+    // store latest reading in memory; flusher will persist to disk periodically
     std::string sid = sanitize_id(id);
-    std::string path = DATA_DIR + "/" + sid + ".txt";
-    std::ofstream ofs(path, std::ios::trunc);
-    if (!ofs) return false;
-    ofs << body;
+    std::lock_guard<std::mutex> lk(in_memory_mutex);
+    in_memory_readings[sid] = body;
     return true;
 }
 
 std::string read_sensor_data(const std::string &id) {
     std::string sid = sanitize_id(id);
+    {
+        std::lock_guard<std::mutex> lk(in_memory_mutex);
+        auto it = in_memory_readings.find(sid);
+        if (it != in_memory_readings.end()) return it->second;
+    }
+    // fallback to disk
     std::string path = DATA_DIR + "/" + sid + ".txt";
     std::ifstream ifs(path);
     if (!ifs) return std::string();
@@ -80,6 +103,8 @@ std::string read_sensor_data(const std::string &id) {
 std::string list_all_sensors_html() {
     std::ostringstream html;
     html << "<html><body><h1>Sensors</h1><ul>";
+    // collect ids from disk and in-memory
+    std::unordered_set<std::string> ids;
     DIR *d = opendir(DATA_DIR.c_str());
     if (d) {
         struct dirent *entry;
@@ -88,11 +113,18 @@ std::string list_all_sensors_html() {
             if (name == "." || name == "..") continue;
             if (name.size() > 4 && name.substr(name.size()-4) == ".txt") {
                 std::string id = name.substr(0, name.size()-4);
-                std::string data = read_sensor_data(id);
-                html << "<li><a href=\"/sensor/" << id << "\">" << id << "</a><pre>" << data << "</pre></li>";
+                ids.insert(id);
             }
         }
         closedir(d);
+    }
+    {
+        std::lock_guard<std::mutex> lk(in_memory_mutex);
+        for (const auto &kv : in_memory_readings) ids.insert(kv.first);
+    }
+    for (const auto &id : ids) {
+        std::string data = read_sensor_data(id);
+        html << "<li><a href=\"/sensor/" << id << "\">" << id << "</a><pre>" << data << "</pre></li>";
     }
     html << "</ul></body></html>";
     return html.str();
@@ -100,10 +132,21 @@ std::string list_all_sensors_html() {
 
 // Return a JSON object mapping sensor id -> stored JSON payload
 std::string all_sensors_json() {
+    // Merge in-memory readings (take precedence) with disk readings
     std::ostringstream out;
     out << "{";
-    DIR *d = opendir(DATA_DIR.c_str());
     bool first = true;
+    // in-memory first
+    {
+        std::lock_guard<std::mutex> lk(in_memory_mutex);
+        for (const auto &kv : in_memory_readings) {
+            if (!first) out << ",";
+            first = false;
+            out << "\"" << kv.first << "\":" << kv.second;
+        }
+    }
+    // then disk entries not present in memory
+    DIR *d = opendir(DATA_DIR.c_str());
     if (d) {
         struct dirent *entry;
         while ((entry = readdir(d)) != nullptr) {
@@ -111,6 +154,10 @@ std::string all_sensors_json() {
             if (name == "." || name == "..") continue;
             if (name.size() > 4 && name.substr(name.size()-4) == ".txt") {
                 std::string id = name.substr(0, name.size()-4);
+                {
+                    std::lock_guard<std::mutex> lk(in_memory_mutex);
+                    if (in_memory_readings.find(id) != in_memory_readings.end()) continue;
+                }
                 std::string data = read_sensor_data(id);
                 if (data.empty()) continue;
                 size_t json_pos = data.find('{');
@@ -234,6 +281,57 @@ static bool write_settings_map(const std::map<std::string, std::tuple<std::optio
         std::rename(tmp.c_str(), SETTINGS_JSON_FILE.c_str());
     }
     return true;
+}
+
+// Flush current in-memory readings to disk (atomic per-file)
+void flush_readings_to_disk() {
+    if (!ensure_data_dir_exists()) return;
+    std::unordered_map<std::string,std::string> copy;
+    {
+        std::lock_guard<std::mutex> lk(in_memory_mutex);
+        copy = in_memory_readings;
+    }
+    for (const auto &kv : copy) {
+        std::string sid = kv.first;
+        std::string path = DATA_DIR + "/" + sid + ".txt";
+        std::string tmp = path + ".tmp";
+        std::ofstream ofs(tmp, std::ios::trunc);
+        if (!ofs) continue;
+        ofs << kv.second;
+        ofs.close();
+        std::error_code ec;
+        std::filesystem::rename(tmp, path, ec);
+        if (ec) {
+            std::rename(tmp.c_str(), path.c_str());
+        }
+    }
+}
+
+static void flusher_loop() {
+    while (flusher_running.load()) {
+        std::unique_lock<std::mutex> lk(flusher_mutex);
+        flusher_cv.wait_for(lk, std::chrono::seconds(flusher_interval_seconds));
+        if (!flusher_running.load()) break;
+        try {
+            flush_readings_to_disk();
+        } catch(...) {}
+    }
+}
+
+void start_periodic_flusher(int seconds) {
+    if (seconds > 0) flusher_interval_seconds = seconds;
+    if (flusher_running.load()) return;
+    flusher_running.store(true);
+    flusher_thread = std::thread(flusher_loop);
+}
+
+void stop_periodic_flusher() {
+    if (!flusher_running.load()) return;
+    flusher_running.store(false);
+    flusher_cv.notify_all();
+    if (flusher_thread.joinable()) flusher_thread.join();
+    // final flush
+    flush_readings_to_disk();
 }
 
 std::string all_settings_json() {

@@ -23,6 +23,7 @@
 #include <iostream>
 #include <cassert>
 #include <filesystem>
+#include <fstream>
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -55,6 +56,12 @@ void test_storage_roundtrip() {
     assert(wrote);
     string read = read_sensor_data(id);
     assert(read == payload);
+    // flush in-memory readings to disk and verify file exists
+    flush_readings_to_disk();
+    std::ifstream ifs(DATA_DIR + "/" + id + ".txt");
+    assert(ifs && "Sensor file should exist after flush");
+    std::ostringstream tmpbuf; tmpbuf << ifs.rdbuf();
+    assert(tmpbuf.str() == payload);
 
     string all = all_sensors_json();
     // should contain "sensor-test":{...}

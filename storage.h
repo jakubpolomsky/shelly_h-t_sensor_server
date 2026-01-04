@@ -13,6 +13,12 @@ std::string all_settings_json();
 // Return settings for a single room as JSON string (empty if not found)
 std::string room_settings_json(const std::string &room);
 
+// Periodic flush control: start background flusher that writes in-memory readings to disk every `seconds`.
+void start_periodic_flusher(int seconds);
+void stop_periodic_flusher();
+// Force immediate flush to disk
+void flush_readings_to_disk();
+
 // Sensor data storage utilities
 bool ensure_data_dir_exists();
 std::string sanitize_id(const std::string &id);

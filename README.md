@@ -50,6 +50,15 @@ Options:
 
 - `./server 8000` — run on port 8000
 - `./server -v` — enable verbose request logging
+- `./server -i 3600` — set flush interval (seconds), default 3600
+
+Examples:
+
+- Run on port 8000 and flush every 10 minutes:
+
+```bash
+./server 8000 -i 600
+```
 
 ## Tests
 

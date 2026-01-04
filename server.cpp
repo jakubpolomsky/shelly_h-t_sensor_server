@@ -26,6 +26,18 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <signal.h>
+#include <atomic>
+#include "storage.h"
+
+static volatile sig_atomic_t keep_running = 1;
+static int g_server_fd = -1;
+
+static void signal_handler(int sig) {
+    (void)sig;
+    keep_running = 0;
+    if (g_server_fd != -1) close(g_server_fd);
+}
 
 int main(int argc, char **argv) {
     auto print_usage_local = [](const char *prog){
@@ -39,12 +51,14 @@ int main(int argc, char **argv) {
         std::cout << "Options:\n";
         std::cout << "  -h, -help, --help       Show this help message\n";
         std::cout << "  -v, -verbose, --verbose Enable verbose request logging\n";
+        std::cout << "  -i, --flush-interval <seconds>  Periodic flush interval in seconds (default 3600)\n";
         std::cout << "Arguments:\n";
         std::cout << "  port                   Optional TCP port to listen on (default " << DEFAULT_PORT << ")\n";
     };
 
     int port = DEFAULT_PORT;
     bool verbose = false;
+    int flush_interval = 3600; // seconds
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-h" || a == "-help" || a == "--help") {
@@ -53,6 +67,21 @@ int main(int argc, char **argv) {
         }
         if (a == "-v" || a == "-verbose" || a == "--verbose") {
             verbose = true;
+            continue;
+        }
+        if (a == "-i" || a == "--flush-interval") {
+            if (i + 1 >= argc) {
+                std::cerr << "Missing value for " << a << "\n";
+                return 1;
+            }
+            char *endptr = nullptr;
+            long v = strtol(argv[i+1], &endptr, 10);
+            if (endptr == argv[i+1] || *endptr != '\0' || v <= 0) {
+                std::cerr << "Invalid flush interval: " << argv[i+1] << "\n";
+                return 1;
+            }
+            flush_interval = static_cast<int>(v);
+            ++i;
             continue;
         }
         // otherwise try parse as port
@@ -87,13 +116,22 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // register signal handlers for clean shutdown
+    g_server_fd = server_fd;
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    // start periodic flusher
+    start_periodic_flusher(flush_interval);
+
     std::cout << "Server running on http://localhost:" << port << "/";
     if (verbose) std::cout << "  (verbose)";
+    std::cout << "  (flush-interval=" << flush_interval << "s)";
     std::cout << "\n";
-
-    while (true) {
+    while (keep_running) {
         int client_fd = accept(server_fd, nullptr, nullptr);
         if (client_fd < 0) {
+            if (!keep_running) break;
             perror("accept");
             continue;
         }
@@ -111,7 +149,13 @@ int main(int argc, char **argv) {
         close(client_fd);
     }
 
+    // shutdown sequence
+    stop_periodic_flusher();
+    // ensure final flush
+    flush_readings_to_disk();
+
     close(server_fd);
+    g_server_fd = -1;
     return 0;
 }
 
