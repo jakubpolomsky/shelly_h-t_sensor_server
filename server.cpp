@@ -28,15 +28,41 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <atomic>
+#include <thread>
+#include <chrono>
 #include "storage.h"
+
 
 static volatile sig_atomic_t keep_running = 1;
 static int g_server_fd = -1;
 
+// notifier thread: when shutdown starts, repeatedly echo a message until shutdown completes
+static std::atomic<bool> shutdown_in_progress(false);
+static std::atomic<bool> shutdown_complete(false);
+static std::thread notifier_thread;
+
 static void signal_handler(int sig) {
     (void)sig;
+    // minimal async-signal-safe message
+    const char msg[] = "Shutdown requested; waiting for server to stop...\n";
+    write(STDERR_FILENO, msg, sizeof(msg)-1);
+    shutdown_in_progress.store(true);
     keep_running = 0;
-    if (g_server_fd != -1) close(g_server_fd);
+    if (g_server_fd != -1) {
+        // try to shutdown socket to interrupt accept()/connections
+        shutdown(g_server_fd, SHUT_RDWR);
+        close(g_server_fd);
+    }
+}
+
+static void notifier_loop() {
+    // wait until shutdown is requested
+    while (!shutdown_in_progress.load()) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // while shutdown is in progress and not complete, print message every second
+    while (!shutdown_complete.load()) {
+        std::cerr << "Shutdown in progress... waiting to finish (press Ctrl+C again to force)\n";
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
 }
 
 int main(int argc, char **argv) {
@@ -101,6 +127,17 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // allow immediate reuse of the address after the server is killed
+    int opt = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("setsockopt(SO_REUSEADDR)");
+    }
+#ifdef SO_REUSEPORT
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0) {
+        // non-fatal
+    }
+#endif
+
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
@@ -120,6 +157,9 @@ int main(int argc, char **argv) {
     g_server_fd = server_fd;
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
+
+    // start notifier thread (will wait until shutdown requested)
+    notifier_thread = std::thread(notifier_loop);
 
     // start periodic flusher
     start_periodic_flusher(flush_interval);
@@ -153,6 +193,10 @@ int main(int argc, char **argv) {
     stop_periodic_flusher();
     // ensure final flush
     flush_readings_to_disk();
+
+    // mark shutdown complete so notifier stops
+    shutdown_complete.store(true);
+    if (notifier_thread.joinable()) notifier_thread.join();
 
     close(server_fd);
     g_server_fd = -1;

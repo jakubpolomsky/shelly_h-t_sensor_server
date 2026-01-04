@@ -34,6 +34,8 @@
 #include <cctype>
 #include <iterator>
 
+#include <regex>
+
 #include <unordered_map>
 #include <unordered_set>
 #include <mutex>
@@ -179,57 +181,33 @@ static bool read_settings_map(std::map<std::string, std::tuple<std::optional<dou
     out.clear();
     if (!ifs) return false;
     std::string s((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-    size_t pos = 0;
-    while (true) {
-        size_t q1 = s.find('"', pos);
-        if (q1 == std::string::npos) break;
-        size_t q2 = s.find('"', q1+1);
-        if (q2 == std::string::npos) break;
-        std::string room = s.substr(q1+1, q2-q1-1);
-        size_t obj_start = s.find('{', q2);
-        if (obj_start == std::string::npos) break;
-        size_t obj_end = s.find('}', obj_start);
-        if (obj_end == std::string::npos) break;
-        std::string obj = s.substr(obj_start+1, obj_end-obj_start-1);
-        std::optional<double> desired;
-        std::string high, low;
-        size_t dpos = obj.find("\"desired\"");
-        if (dpos != std::string::npos) {
-            size_t colon = obj.find(':', dpos);
-            if (colon != std::string::npos) {
-                size_t val = colon+1;
-                while (val < obj.size() && isspace((unsigned char)obj[val])) ++val;
-                if (obj.compare(val, 4, "null") != 0) {
-                    size_t vend = val;
-                    while (vend < obj.size() && (isdigit((unsigned char)obj[vend]) || obj[vend]=='.' || obj[vend]=='-' || obj[vend]=='+' || obj[vend]=='e' || obj[vend]=='E')) ++vend;
-                    try { desired = std::stod(obj.substr(val, vend-val)); } catch(...) { desired.reset(); }
+    try {
+        std::regex entry_re(R"RE("([^"]+)"\s*:\s*\{([^}]*)\})RE");
+        auto begin = std::sregex_iterator(s.begin(), s.end(), entry_re);
+        auto end = std::sregex_iterator();
+        for (auto it = begin; it != end; ++it) {
+            std::smatch match = *it;
+            std::string room = match[1].str();
+            std::string body = match[2].str();
+            std::optional<double> desired;
+            std::string high, low;
+            std::smatch sub;
+            if (std::regex_search(body, sub, std::regex(R"RE("desired"\s*:\s*(null|[-0-9.+eE]+))RE"))) {
+                std::string val = sub[1].str();
+                if (val != "null") {
+                    try { desired = std::stod(val); } catch(...) { desired.reset(); }
                 }
             }
-        }
-        size_t hpos = obj.find("\"high\"");
-        if (hpos != std::string::npos) {
-            size_t colon = obj.find(':', hpos);
-            if (colon != std::string::npos) {
-                size_t q3 = obj.find('"', colon);
-                if (q3 != std::string::npos) {
-                    size_t q4 = obj.find('"', q3+1);
-                    if (q4 != std::string::npos) high = obj.substr(q3+1, q4-q3-1);
-                }
+            if (std::regex_search(body, sub, std::regex(R"RE("high"\s*:\s*"([^"]*)")RE"))) {
+                high = sub[1].str();
             }
-        }
-        size_t lpos = obj.find("\"low\"");
-        if (lpos != std::string::npos) {
-            size_t colon = obj.find(':', lpos);
-            if (colon != std::string::npos) {
-                size_t q3 = obj.find('"', colon);
-                if (q3 != std::string::npos) {
-                    size_t q4 = obj.find('"', q3+1);
-                    if (q4 != std::string::npos) low = obj.substr(q3+1, q4-q3-1);
-                }
+            if (std::regex_search(body, sub, std::regex(R"RE("low"\s*:\s*"([^"]*)")RE"))) {
+                low = sub[1].str();
             }
+            out[room] = std::make_tuple(desired, high, low);
         }
-        out[room] = std::make_tuple(desired, high, low);
-        pos = obj_end + 1;
+    } catch(...) {
+        return false;
     }
     return true;
 }
