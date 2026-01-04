@@ -1,8 +1,5 @@
-#include "../http.h"
-#include "../storage.h"
-
 /*
- * Copyright (C) 2026 Jakub
+ * Copyright (C) 2026 github.com/jakubpolomsky
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,9 +14,12 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
- * Author: Jakub
+ * Author: github.com/jakubpolomsky
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
+
+#include "../http.h"
+#include "../storage.h"
 #include <iostream>
 #include <cassert>
 #include <filesystem>

@@ -39,5 +39,3 @@ License
 
 This project is licensed under the GNU General Public License v3 or
 later. See the COPYING file for the full license text.
-
-Author: Jakub
