@@ -21,16 +21,23 @@
 #include "storage.h"
 
 #include <fstream>
-#include <chrono>
-#include <iomanip>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <vector>
 #include <sstream>
+#include <filesystem>
 #include <string>
-#include <cstdlib>
+#include <map>
+#include <optional>
+#include <tuple>
+#include <cstdio>
+#include <cctype>
+#include <iterator>
 
 // define DATA_DIR default
 std::string DATA_DIR = "data";
+// define SETTINGS_JSON_FILE default
+std::string SETTINGS_JSON_FILE = "settings.json";
 
 bool ensure_data_dir_exists() {
     struct stat st{};
@@ -117,4 +124,190 @@ std::string all_sensors_json() {
     }
     out << "}";
     return out.str();
+}
+
+// Read settings JSON into map: room -> (optional desired, high, low)
+static bool read_settings_map(std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> &out) {
+    std::ifstream ifs(SETTINGS_JSON_FILE);
+    out.clear();
+    if (!ifs) return false;
+    std::string s((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+    size_t pos = 0;
+    while (true) {
+        size_t q1 = s.find('"', pos);
+        if (q1 == std::string::npos) break;
+        size_t q2 = s.find('"', q1+1);
+        if (q2 == std::string::npos) break;
+        std::string room = s.substr(q1+1, q2-q1-1);
+        size_t obj_start = s.find('{', q2);
+        if (obj_start == std::string::npos) break;
+        size_t obj_end = s.find('}', obj_start);
+        if (obj_end == std::string::npos) break;
+        std::string obj = s.substr(obj_start+1, obj_end-obj_start-1);
+        std::optional<double> desired;
+        std::string high, low;
+        size_t dpos = obj.find("\"desired\"");
+        if (dpos != std::string::npos) {
+            size_t colon = obj.find(':', dpos);
+            if (colon != std::string::npos) {
+                size_t val = colon+1;
+                while (val < obj.size() && isspace((unsigned char)obj[val])) ++val;
+                if (obj.compare(val, 4, "null") != 0) {
+                    size_t vend = val;
+                    while (vend < obj.size() && (isdigit((unsigned char)obj[vend]) || obj[vend]=='.' || obj[vend]=='-' || obj[vend]=='+' || obj[vend]=='e' || obj[vend]=='E')) ++vend;
+                    try { desired = std::stod(obj.substr(val, vend-val)); } catch(...) { desired.reset(); }
+                }
+            }
+        }
+        size_t hpos = obj.find("\"high\"");
+        if (hpos != std::string::npos) {
+            size_t colon = obj.find(':', hpos);
+            if (colon != std::string::npos) {
+                size_t q3 = obj.find('"', colon);
+                if (q3 != std::string::npos) {
+                    size_t q4 = obj.find('"', q3+1);
+                    if (q4 != std::string::npos) high = obj.substr(q3+1, q4-q3-1);
+                }
+            }
+        }
+        size_t lpos = obj.find("\"low\"");
+        if (lpos != std::string::npos) {
+            size_t colon = obj.find(':', lpos);
+            if (colon != std::string::npos) {
+                size_t q3 = obj.find('"', colon);
+                if (q3 != std::string::npos) {
+                    size_t q4 = obj.find('"', q3+1);
+                    if (q4 != std::string::npos) low = obj.substr(q3+1, q4-q3-1);
+                }
+            }
+        }
+        out[room] = std::make_tuple(desired, high, low);
+        pos = obj_end + 1;
+    }
+    return true;
+}
+
+static bool write_settings_map(const std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> &m) {
+    auto esc = [](const std::string &s){
+        std::string o; o.reserve(s.size()*2);
+        for (char c : s) {
+            switch (c) {
+                case '"': o += "\\\""; break;
+                case '\\': o += "\\\\"; break;
+                case '\b': o += "\\b"; break;
+                case '\f': o += "\\f"; break;
+                case '\n': o += "\\n"; break;
+                case '\r': o += "\\r"; break;
+                case '\t': o += "\\t"; break;
+                default: o.push_back(c);
+            }
+        }
+        return o;
+    };
+    std::ostringstream js;
+    js << "{";
+    bool first = true;
+    for (const auto &kv : m) {
+        if (!first) js << ",";
+        first = false;
+        const std::string &room = kv.first;
+        const auto &tpl = kv.second;
+        js << '"' << esc(room) << '"' << ":" << "{";
+        if (std::get<0>(tpl).has_value()) js << "\"desired\":" << std::get<0>(tpl).value();
+        else js << "\"desired\":null";
+        js << ",\"high\":\"" << esc(std::get<1>(tpl)) << "\",\"low\":\"" << esc(std::get<2>(tpl)) << "\"}";
+    }
+    js << "}";
+    // atomic write: write to temp then rename
+    std::filesystem::path p(SETTINGS_JSON_FILE);
+    auto parent = p.parent_path();
+    if (!parent.empty()) std::filesystem::create_directories(parent);
+    std::string tmp = SETTINGS_JSON_FILE + ".tmp";
+    std::ofstream ofs(tmp, std::ios::trunc);
+    if (!ofs) return false;
+    ofs << js.str();
+    ofs.close();
+    std::error_code ec;
+    std::filesystem::rename(tmp, SETTINGS_JSON_FILE, ec);
+    if (ec) {
+        // fallback: try std::rename
+        std::rename(tmp.c_str(), SETTINGS_JSON_FILE.c_str());
+    }
+    return true;
+}
+
+std::string all_settings_json() {
+    std::ifstream ifs(SETTINGS_JSON_FILE);
+    if (!ifs) return std::string("{}");
+    std::string s((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+    return s.empty() ? std::string("{}") : s;
+}
+
+std::string room_settings_json(const std::string &room) {
+    std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> m;
+    if (!read_settings_map(m)) return std::string();
+    std::string sid = sanitize_id(room);
+    auto it = m.find(sid);
+    if (it == m.end()) return std::string();
+    const auto &tpl = it->second;
+    auto esc = [](const std::string &s){
+        std::string o; o.reserve(s.size()*2);
+        for (char c : s) {
+            switch (c) {
+                case '"': o += "\\\""; break;
+                case '\\': o += "\\\\"; break;
+                case '\b': o += "\\b"; break;
+                case '\f': o += "\\f"; break;
+                case '\n': o += "\\n"; break;
+                case '\r': o += "\\r"; break;
+                case '\t': o += "\\t"; break;
+                default: o.push_back(c);
+            }
+        }
+        return o;
+    };
+    std::ostringstream js;
+    js << "{";
+    if (std::get<0>(tpl).has_value()) js << "\"desired\":" << std::get<0>(tpl).value();
+    else js << "\"desired\":null";
+    js << ",\"high\":\"" << esc(std::get<1>(tpl)) << "\",\"low\":\"" << esc(std::get<2>(tpl)) << "\"}";
+    return js.str();
+}
+
+bool set_desired_temperature(const std::string &room, double desired) {
+    std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> m;
+    read_settings_map(m);
+    std::string sid = sanitize_id(room);
+    m[sid] = std::make_tuple(std::optional<double>(desired), std::get<1>(m[sid]), std::get<2>(m[sid]));
+    write_settings_map(m);
+    return true;
+}
+
+bool set_trigger_url(const std::string &room, const std::string &type, const std::string &url) {
+    std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> m;
+    read_settings_map(m);
+    std::string sid = sanitize_id(room);
+    auto &entry = m[sid];
+    std::optional<double> desired = std::get<0>(entry);
+    std::string high = std::get<1>(entry);
+    std::string low = std::get<2>(entry);
+    if (type == "high") high = url;
+    else if (type == "low") low = url;
+    m[sid] = std::make_tuple(desired, high, low);
+    write_settings_map(m);
+    return true;
+}
+
+bool get_room_settings(const std::string &room, double &desired, bool &has_desired, std::string &high_url, std::string &low_url) {
+    std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> m;
+    if (!read_settings_map(m)) return false;
+    std::string sid = sanitize_id(room);
+    auto it = m.find(sid);
+    if (it == m.end()) return false;
+    const auto &tpl = it->second;
+    if (std::get<0>(tpl).has_value()) { desired = std::get<0>(tpl).value(); has_desired = true; }
+    else { desired = 0.0; has_desired = false; }
+    high_url = std::get<1>(tpl);
+    low_url = std::get<2>(tpl);
+    return true;
 }

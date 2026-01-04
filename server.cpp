@@ -18,7 +18,6 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-// main only - HTTP and storage implementations moved to http.cpp and storage.cpp
 #include "server.h"
 #include "http.h"
 #include <iostream>

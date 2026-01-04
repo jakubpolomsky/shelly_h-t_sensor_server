@@ -1,5 +1,6 @@
 # Ignore executables
 server
+tests/test_server
 
 # VS Code directories
 .vscode/
@@ -7,3 +8,10 @@ server
 
 # Data directory
 data/
+
+# All bruno files
+bruno/
+bruno/*
+
+# Settings file
+settings.json

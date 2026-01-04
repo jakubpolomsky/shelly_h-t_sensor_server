@@ -28,8 +28,13 @@
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 // Forward declarations: functions declared in server.h are implemented here.
+
+// (implementation moved earlier)
 
 std::string read_request(int client_fd) {
     std::string req;
@@ -101,6 +106,9 @@ std::map<std::string,std::string> parse_query(const std::string &query) {
     return params;
 }
 
+// forward declaration for background executor used below
+static void execute_url_background(const std::string &url);
+
 RequestLine parse_request_line(const std::string &req) {
     RequestLine rl;
     std::istringstream request_stream(req);
@@ -160,10 +168,39 @@ std::string process_request_and_build_response(const std::string &req) {
 
             bool ok = save_sensor_data(sensor, payload.str());
             std::string resp_body = ok ? (std::string("Stored sensor data for: ") + sensor) : (std::string("Failed to store data for: ") + sensor);
+
+            // After storing, check desired temperature and triggers
+            if (ok && !temp.empty()) {
+                try {
+                    double measured = std::stod(temp);
+                    double desired = 0.0;
+                    bool has_desired = false;
+                    std::string high_url, low_url;
+                    if (get_room_settings(sensor, desired, has_desired, high_url, low_url) && has_desired) {
+                        if (measured > desired && !high_url.empty()) {
+                            execute_url_background(high_url);
+                        } else if (measured < desired && !low_url.empty()) {
+                            execute_url_background(low_url);
+                        }
+                    }
+                } catch(...) {
+                    // ignore parse errors
+                }
+            }
+
             return build_response("text/plain", resp_body);
         } else if (rl.path == "/sensors" || rl.path == "/allSensors") {
             std::string json = all_sensors_json();
             return build_response("application/json", json);
+        } else if (rl.path == "/settings") {
+            std::string json = all_settings_json();
+            return build_response("application/json", json);
+        } else if (rl.path.rfind("/settings/", 0) == 0) {
+            std::string room = rl.path.substr(std::string("/settings/").size());
+            if (room.empty()) return std::string("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
+            std::string js = room_settings_json(room);
+            if (js.empty()) return std::string("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+            return build_response("application/json", js);
         } else {
             std::string body = list_all_sensors_html();
             return build_response("text/html", body);
@@ -171,10 +208,61 @@ std::string process_request_and_build_response(const std::string &req) {
     } else if (rl.method == "POST") {
         size_t header_end = req.find("\r\n\r\n");
         std::string body = (header_end != std::string::npos) ? req.substr(header_end + 4) : "";
-        bool ok = true;
-        std::string resp_body = ok ? ("Stored sensor data for: ") : ("Failed to store data for: ");
-        return build_response("text/plain", resp_body);
+        // parse POST body as application/x-www-form-urlencoded
+        auto params = parse_query(body);
+        // Route: set desired temperature
+        if (rl.path == "/setDesiredTemperature") {
+            std::string room = params.count("room") ? params["room"] : (params.count("sensor") ? params["sensor"] : "");
+            std::string desired_s = params.count("desired") ? params["desired"] : params["value"];
+            if (room.empty() || desired_s.empty()) {
+                return build_response("text/plain", "Missing room or desired parameter");
+            }
+            try {
+                double d = std::stod(desired_s);
+                bool ok = set_desired_temperature(room, d);
+                return build_response("text/plain", ok ? "OK" : "Failed");
+            } catch (...) {
+                return build_response("text/plain", "Invalid desired value");
+            }
+        }
+
+        // Route: set high trigger URL
+        if (rl.path == "/setHighTrigger") {
+            std::string room = params.count("room") ? params["room"] : (params.count("sensor") ? params["sensor"] : "");
+            std::string url = params.count("url") ? params["url"] : params["trigger"];
+            if (room.empty() || url.empty()) return build_response("text/plain", "Missing room or url");
+            bool ok = set_trigger_url(room, "high", url);
+            return build_response("text/plain", ok ? "OK" : "Failed");
+        }
+
+        // Route: set low trigger URL
+        if (rl.path == "/setLowTrigger") {
+            std::string room = params.count("room") ? params["room"] : (params.count("sensor") ? params["sensor"] : "");
+            std::string url = params.count("url") ? params["url"] : params["trigger"];
+            if (room.empty() || url.empty()) return build_response("text/plain", "Missing room or url");
+            bool ok = set_trigger_url(room, "low", url);
+            return build_response("text/plain", ok ? "OK" : "Failed");
+        }
+
+        return build_response("text/plain", "Unknown POST route");
     } else {
         return std::string("HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n");
+    }
+}
+
+// execute URL in background using curl if available
+static void execute_url_background(const std::string &url) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        // child
+        execlp("curl", "curl", "-s", "-S", "-X", "GET", url.c_str(), (char*)NULL);
+        _exit(0);
+    } else if (pid > 0) {
+        // parent: do not wait
+        return;
+    } else {
+        // fork failed; as fallback use system (non-blocking)
+        std::string cmd = "curl -s -S -X GET '" + url + "' >/dev/null 2>&1 &";
+        system(cmd.c_str());
     }
 }

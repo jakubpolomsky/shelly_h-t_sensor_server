@@ -64,11 +64,41 @@ void test_storage_roundtrip() {
     fs::remove_all(DATA_DIR);
 }
 
+void test_settings() {
+    DATA_DIR = "test_data";
+    if (fs::exists(DATA_DIR)) fs::remove_all(DATA_DIR);
+    bool ok = ensure_data_dir_exists();
+    assert(ok);
+    // place settings inside test_data for isolation
+    SETTINGS_JSON_FILE = DATA_DIR + "/settings.json";
+
+    string room = "living-room";
+    // set desired temp
+    bool s1 = set_desired_temperature(room, 21.5);
+    assert(s1);
+    // set triggers
+    bool s2 = set_trigger_url(room, "high", "http://example.com/high");
+    bool s3 = set_trigger_url(room, "low", "http://example.com/low");
+    assert(s2 && s3);
+
+    double desired = 0.0; bool has_desired = false; string high; string low;
+    bool got = get_room_settings(room, desired, has_desired, high, low);
+    assert(got);
+    assert(has_desired);
+    assert(desired == 21.5);
+    assert(high == "http://example.com/high");
+    assert(low == "http://example.com/low");
+
+    // cleanup
+    fs::remove_all(DATA_DIR);
+}
+
 int main() {
     try {
         test_parse_query();
         test_sanitize_id();
         test_storage_roundtrip();
+        test_settings();
         cout << "All tests passed\n";
         return 0;
     } catch (const std::exception &e) {
