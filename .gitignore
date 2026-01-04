@@ -1,6 +1,7 @@
 # Ignore executables
 server
 tests/test_server
+tests/run_tests
 
 # VS Code directories
 .vscode/
