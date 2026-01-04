@@ -1,0 +1,9 @@
+# Ignore executables
+server
+
+# VS Code directories
+.vscode/
+.vscode-test/
+
+# Data directory
+data/
