@@ -31,6 +31,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 // Forward declarations: functions declared in server.h are implemented here.
 
@@ -260,8 +261,15 @@ static void execute_url_background(const std::string &url) {
     pid_t pid = fork();
     if (pid == 0) {
         // child
+        // detach stdio to avoid polluting server terminal
+        int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            if (devnull > STDERR_FILENO) close(devnull);
+        }
         execlp("curl", "curl", "-s", "-S", "-X", "GET", url.c_str(), (char*)NULL);
-        _exit(0);
+        _exit(1);
     } else if (pid > 0) {
         // parent: do not wait
         return;
