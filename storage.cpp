@@ -48,6 +48,8 @@
 std::string DATA_DIR = "data";
 // define SETTINGS_JSON_FILE default
 std::string SETTINGS_JSON_FILE = "settings.json";
+// define TRIGGERS_LOG_FILE default (kept outside of DATA_DIR)
+std::string TRIGGERS_LOG_FILE = "triggers.log";
 
 // in-memory cache for latest readings (sensor id -> JSON payload)
 static std::unordered_map<std::string, std::string> in_memory_readings;
@@ -283,6 +285,60 @@ void flush_readings_to_disk() {
             std::rename(tmp.c_str(), path.c_str());
         }
     }
+}
+
+// helper: escape JSON string
+static std::string json_escape(const std::string &s) {
+    std::string o; o.reserve(s.size()*2);
+    for (char c : s) {
+        switch (c) {
+            case '"': o += "\\\""; break;
+            case '\\': o += "\\\\"; break;
+            case '\b': o += "\\b"; break;
+            case '\f': o += "\\f"; break;
+            case '\n': o += "\\n"; break;
+            case '\r': o += "\\r"; break;
+            case '\t': o += "\\t"; break;
+            default: o.push_back(c);
+        }
+    }
+    return o;
+}
+
+void log_trigger_event(const std::string &sensor, const std::string &type, const std::string &url) {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::ostringstream ts;
+    ts << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S");
+    std::string obj = "{";
+    obj += "\"timestamp\":\"" + json_escape(ts.str()) + "\",";
+    obj += "\"sensor\":\"" + json_escape(sensor) + "\",";
+    obj += "\"type\":\"" + json_escape(type) + "\",";
+    obj += "\"url\":\"" + json_escape(url) + "\"}";
+
+    std::string path = TRIGGERS_LOG_FILE;
+    // append line (file located outside of DATA_DIR)
+    std::ofstream ofs(path, std::ios::app);
+    if (!ofs) return;
+    ofs << obj << "\n";
+}
+
+std::string all_trigger_events_json() {
+    std::string path = TRIGGERS_LOG_FILE;
+    std::ifstream ifs(path);
+    if (!ifs) return std::string("[]");
+    std::string line;
+    std::ostringstream out;
+    out << "[";
+    bool first = true;
+    while (std::getline(ifs, line)) {
+        if (line.empty()) continue;
+        if (!first) out << ",";
+        first = false;
+        out << line;
+    }
+    out << "]";
+    return out.str();
 }
 
 static void flusher_loop() {

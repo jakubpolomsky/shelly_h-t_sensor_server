@@ -19,6 +19,12 @@ void stop_periodic_flusher();
 // Force immediate flush to disk
 void flush_readings_to_disk();
 
+// Trigger event logging
+// Record that a trigger URL was executed for `sensor` with type `high` or `low` and the URL called
+void log_trigger_event(const std::string &sensor, const std::string &type, const std::string &url);
+// Return trigger events as a JSON array string (each entry is an object with timestamp, sensor, type, url)
+std::string all_trigger_events_json();
+
 // Sensor data storage utilities
 bool ensure_data_dir_exists();
 std::string sanitize_id(const std::string &id);

@@ -178,8 +178,10 @@ std::string process_request_and_build_response(const std::string &req) {
                     std::string high_url, low_url;
                     if (get_room_settings(sensor, desired, has_desired, high_url, low_url) && has_desired) {
                         if (measured > desired && !high_url.empty()) {
+                            log_trigger_event(sensor, "high", high_url);
                             execute_url_background(high_url);
                         } else if (measured < desired && !low_url.empty()) {
+                            log_trigger_event(sensor, "low", low_url);
                             execute_url_background(low_url);
                         }
                     }
@@ -191,6 +193,9 @@ std::string process_request_and_build_response(const std::string &req) {
             return build_response("text/plain", resp_body);
         } else if (rl.path == "/sensors" || rl.path == "/allSensors") {
             std::string json = all_sensors_json();
+            return build_response("application/json", json);
+        } else if (rl.path == "/triggers" || rl.path == "/triggerEvents") {
+            std::string json = all_trigger_events_json();
             return build_response("application/json", json);
         } else if (rl.path == "/settings") {
             std::string json = all_settings_json();
