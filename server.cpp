@@ -20,16 +20,6 @@
 
 #include "server.h"
 #include "http.h"
-#include <iostream>
-#include <cstring>
-#include <unistd.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <signal.h>
-#include <atomic>
-#include <thread>
-#include <chrono>
 #include "storage.h"
 
 
