@@ -70,7 +70,7 @@ make test
 
 ## Endpoints (with examples)
 
-POST (modify state):
+### POST (modify state):
 
 - Set desired temperature for a room (form-encoded):
 
@@ -90,7 +90,7 @@ curl -X POST -d "room=living-room&url=https://example.com/high" http://localhost
 curl -X POST -d "room=living-room&url=https://example.com/low" http://localhost:8080/setLowTrigger
 ```
 
-GET (read-only):
+### GET (read-only):
 
 - Web UI / index:
 
@@ -126,30 +126,6 @@ curl http://localhost:8080/settings/<room>
 
 ```bash
 curl "http://localhost:8080/saveSensorInformation?sensor=living-room&temp=22.0&hum=45&batt=3.7"
-```
-### POST:
-- Set desired temperature (`<temperature>`) for a specific room (`<room>`)
-
-```bash
-curl -X POST http://localhost:8080/setDesiredTemperature
-    -H "Content-Type: application/x-www-form-urlencoded"
-    -d "desired=<temperature>&room=<room>"
-```
-
-- Set trigger url (`<url>`) when measured temperature exceeds desired temperature for a specific room (`<room>`)
-
-```bash
-curl -X POST http://localhost:8080/setHighTrigger
-    -H "Content-Type: application/x-www-form-urlencoded"
-    -d "url=<url>&room=<room>"
-```
-
-- Set trigger url (`<url>`) when measured temperature is lower than desired temperature for a specific room (`<room>`)
-
-```bash
-curl -X POST http://localhost:8080/setLowTrigger
-    -H "Content-Type: application/x-www-form-urlencoded"
-    -d "url=<url>&room=<room>"
 ```
 
 ### DELETE:
