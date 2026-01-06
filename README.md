@@ -68,7 +68,7 @@ Run unit tests:
 make test
 ```
 
-## Endpoints (examples)
+## Endpoints (with examples)
 
 POST (modify state):
 
@@ -127,12 +127,50 @@ curl http://localhost:8080/settings/<room>
 ```bash
 curl "http://localhost:8080/saveSensorInformation?sensor=living-room&temp=22.0&hum=45&batt=3.7"
 ```
+### POST:
+- Set desired temperature (`<temperature>`) for a specific room (`<room>`)
+
+```bash
+curl -X POST http://localhost:8080/setDesiredTemperature
+    -H "Content-Type: application/x-www-form-urlencoded"
+    -d "desired=<temperature>&room=<room>"
+```
+
+- Set trigger url (`<url>`) when measured temperature exceeds desired temperature for a specific room (`<room>`)
+
+```bash
+curl -X POST http://localhost:8080/setHighTrigger
+    -H "Content-Type: application/x-www-form-urlencoded"
+    -d "url=<url>&room=<room>"
+```
+
+- Set trigger url (`<url>`) when measured temperature is lower than desired temperature for a specific room (`<room>`)
+
+```bash
+curl -X POST http://localhost:8080/setLowTrigger
+    -H "Content-Type: application/x-www-form-urlencoded"
+    -d "url=<url>&room=<room>"
+```
+
+### DELETE:
+- Settings for a specific room (`<room>`)
+
+```bash
+curl -X DELETE http://localhost:8080/settings/<room>
+```
+
+- All logged triggers
+
+```bash
+curl -X DELETE http://localhost:8080/triggerLog
+```
 
 ## Storage details
 
 - Sensor data: stored per-sensor under the `data/` directory (default). Each sensor has a single file with the last JSON payload.
 - Settings: stored in `settings.json` (repository root by default). This is the single canonical source for room settings.
-- Trigger execution: uses `curl` in a background child process; ensure `curl` is installed on the host.
+- Triggers: stored in `triggers.log` (repository root by default). This is the single source for log of triggers.
+- Triggers execution: uses `curl` in a background child process; ensure `curl` is installed on the host.
 
 ## License
 

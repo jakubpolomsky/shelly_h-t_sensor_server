@@ -215,12 +215,12 @@ std::string process_get_request(const RequestLine &rl) {
 }
 
 std::string process_delete_request(const RequestLine &rl) {
-    if (rl.path.rfind("/deleteRoomSettings", 0) == 0) {
-        std::string room = rl.path.substr(std::string("/deleteRoomSettings/").size());
+    if (rl.path.rfind("/settings", 0) == 0) {
+        std::string room = rl.path.substr(std::string("/settings/").size());
         if (room.empty()) return build_response("text/plain", "Missing room name");
         bool ok = delete_room_settings(room);
         return build_response("text/plain", ok ? "OK" : "Failed");
-    } if (rl.path == "/deleteTriggerLog") {
+    } if (rl.path == "/triggerLog") {
         bool ec = clear_trigger_events_log();
         return build_response("text/plain", ec ? "OK" : "Failed");
 
