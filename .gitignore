@@ -16,3 +16,6 @@ bruno/*
 
 # Settings file
 settings.json
+
+# log files
+triggers.log

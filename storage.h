@@ -2,6 +2,27 @@
 #define STORAGE_H
 
 #include <string>
+#include <fstream>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <vector>
+#include <sstream>
+#include <filesystem>
+#include <string>
+#include <map>
+#include <optional>
+#include <tuple>
+#include <cstdio>
+#include <cctype>
+#include <iterator>
+#include <regex>
+#include <unordered_map>
+#include <unordered_set>
+#include <mutex>
+#include <thread>
+#include <condition_variable>
+#include <atomic>
+#include <chrono>
 
 // Data directory used for storage; defined in storage.cpp
 extern std::string DATA_DIR;
@@ -24,6 +45,8 @@ void flush_readings_to_disk();
 void log_trigger_event(const std::string &sensor, const std::string &type, const std::string &url);
 // Return trigger events as a JSON array string (each entry is an object with timestamp, sensor, type, url)
 std::string all_trigger_events_json();
+// Clear all trigger events log
+bool clear_trigger_events_log();
 
 // Sensor data storage utilities
 bool ensure_data_dir_exists();
@@ -40,5 +63,7 @@ bool set_desired_temperature(const std::string &room, double desired);
 bool set_trigger_url(const std::string &room, const std::string &type, const std::string &url);
 // Get room settings; returns true if room exists or has settings
 bool get_room_settings(const std::string &room, double &desired, bool &has_desired, std::string &high_url, std::string &low_url);
+// Clear settings for a room
+bool delete_room_settings(const std::string &room);
 
 #endif // STORAGE_H

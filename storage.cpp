@@ -20,29 +20,7 @@
 
 #include "storage.h"
 
-#include <fstream>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <vector>
-#include <sstream>
-#include <filesystem>
-#include <string>
-#include <map>
-#include <optional>
-#include <tuple>
-#include <cstdio>
-#include <cctype>
-#include <iterator>
 
-#include <regex>
-
-#include <unordered_map>
-#include <unordered_set>
-#include <mutex>
-#include <thread>
-#include <condition_variable>
-#include <atomic>
-#include <chrono>
 
 // define DATA_DIR default
 std::string DATA_DIR = "data";
@@ -341,6 +319,13 @@ std::string all_trigger_events_json() {
     return out.str();
 }
 
+bool clear_trigger_events_log() {
+    std::string path = TRIGGERS_LOG_FILE;
+    std::ofstream ofs(path, std::ios::trunc);
+    return ofs.good();
+}
+
+
 static void flusher_loop() {
     while (flusher_running.load()) {
         std::unique_lock<std::mutex> lk(flusher_mutex);
@@ -412,6 +397,18 @@ bool set_desired_temperature(const std::string &room, double desired) {
     std::string sid = sanitize_id(room);
     m[sid] = std::make_tuple(std::optional<double>(desired), std::get<1>(m[sid]), std::get<2>(m[sid]));
     write_settings_map(m);
+    return true;
+}
+
+bool delete_room_settings(const std::string &room) {
+    std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> m;
+    read_settings_map(m);
+    std::string sid = sanitize_id(room);
+    auto it = m.find(sid);
+    if (it != m.end()) {
+        m.erase(it);
+        write_settings_map(m);
+    }
     return true;
 }
 

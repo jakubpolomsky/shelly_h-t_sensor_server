@@ -23,6 +23,18 @@
 
 #include <string>
 #include <map>
+#include <sstream>
+#include <iostream>
+#include <cstring>
+#include <sys/socket.h>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <math.h>
 
 struct RequestLine {
     std::string method;
@@ -45,4 +57,7 @@ std::string process_request_and_build_response(const std::string &req);
 // Parse a URL query string into a map of key->value (URL-decoded)
 std::map<std::string,std::string> parse_query(const std::string &query);
 
+std::string process_get_request(const RequestLine &rl);
+std::string process_post_request(const RequestLine &rl, const std::string &body);
+std::string process_delete_request(const RequestLine &rl);
 #endif // HTTP_H

@@ -21,17 +21,6 @@
 #include "http.h"
 #include "storage.h"
 
-#include <sstream>
-#include <iostream>
-#include <cstring>
-#include <sys/socket.h>
-#include <chrono>
-#include <ctime>
-#include <iomanip>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#include <fcntl.h>
 
 // Forward declarations: functions declared in server.h are implemented here.
 
@@ -133,8 +122,20 @@ std::string build_response(const std::string &content_type, const std::string &b
 
 std::string process_request_and_build_response(const std::string &req) {
     RequestLine rl = parse_request_line(req);
+    
     if (rl.method == "GET") {
-        if (rl.path == "/" || rl.path == "") {
+        return process_get_request(rl);
+    } else if (rl.method == "POST") {
+        return process_post_request(rl, req);
+    } else if (rl.method == "DELETE") {
+        return process_delete_request(rl);
+    }
+
+    return std::string("HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n");
+}
+
+std::string process_get_request(const RequestLine &rl) {
+    if (rl.path == "/" || rl.path == "") {
             std::string body = list_all_sensors_html();
             return build_response("text/html", body);
         } else if (rl.path.rfind("/sensor/", 0) == 0) {
@@ -211,8 +212,25 @@ std::string process_request_and_build_response(const std::string &req) {
             std::string body = list_all_sensors_html();
             return build_response("text/html", body);
         }
-    } else if (rl.method == "POST") {
-        size_t header_end = req.find("\r\n\r\n");
+}
+
+std::string process_delete_request(const RequestLine &rl) {
+    if (rl.path.rfind("/deleteRoomSettings", 0) == 0) {
+        std::string room = rl.path.substr(std::string("/deleteRoomSettings/").size());
+        if (room.empty()) return build_response("text/plain", "Missing room name");
+        bool ok = delete_room_settings(room);
+        return build_response("text/plain", ok ? "OK" : "Failed");
+    } if (rl.path == "/deleteTriggerLog") {
+        bool ec = clear_trigger_events_log();
+        return build_response("text/plain", ec ? "OK" : "Failed");
+
+    }else {
+        return std::string("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+    }
+}
+
+std::string process_post_request(const RequestLine &rl, const std::string &req) {
+    size_t header_end = req.find("\r\n\r\n");
         std::string body = (header_end != std::string::npos) ? req.substr(header_end + 4) : "";
         // parse POST body as application/x-www-form-urlencoded
         auto params = parse_query(body);
@@ -251,9 +269,6 @@ std::string process_request_and_build_response(const std::string &req) {
         }
 
         return build_response("text/plain", "Unknown POST route");
-    } else {
-        return std::string("HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n");
-    }
 }
 
 // execute URL in background using curl if available
