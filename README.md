@@ -2,6 +2,14 @@
 
 Simple C++ HTTP server for receiving and serving sensor data.
 
+First of all, this was my first try with "vibe coding". Github copilot wrote the first dozen commits. Honestly it did quite well. It wasn't very tidy (see yourself in commit history) and it misinterpreted it's own suggestions (e.g. it suggested using library to parse JSON and after I gave it a go it decided to move from string manipulation to regex) but it still produced a product I could use if I didn't have more requirements I decided to implement myself. Nonetheless, this server (with modifications visible in my later commits) is now my sole back-end for my heating automation at home. I have 6 rooms with Shelly H&T Gen 3 sensors and all rooms have a separate circuit to trigger.
+
+Why did I make it? Because I had a bunch of shelly relays and the H&T Gen 3 sensors I decided to put into use. Feel free to use and modify. If there is something more people would benefit, please add send me a pull request.
+
+Future plans:
+1. evaluate how fast the temperature per room is changing after a trigger was fired
+2. improve testing
+
 ## Build
 
 Requires a C++17 compiler (g++). From the project root:
