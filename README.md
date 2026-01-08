@@ -156,6 +156,10 @@ curl -X DELETE http://localhost:8080/triggerLog
 - Triggers: stored in `triggers.log` (repository root by default). This is the single source for log of triggers.
 - Triggers execution: uses `curl` in a background child process; ensure `curl` is installed on the host.
 
+## Behavior note
+
+- **Expect: 100-continue**: The server replies with an interim `HTTP/1.1 100 Continue` response when a client sends the `Expect: 100-continue` header. This prevents clients such as Postman from appearing to stall while waiting to send the request body.
+
 ## License
 
 This project is licensed under the GNU General Public License v3 or later. See the `COPYING` file for full license text.
