@@ -2,6 +2,7 @@
 server
 tests/test_server
 tests/run_tests
+tests/run_integration
 
 # VS Code directories
 .vscode/

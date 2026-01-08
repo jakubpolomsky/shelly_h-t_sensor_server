@@ -45,6 +45,12 @@ extern std::mutex in_memory_triggers_mutex;
 
 // Maximum number of trigger events kept in memory before older events are dropped.
 extern std::atomic<int> MAX_TRIGGER_EVENTS;
+
+// Global flag to enable/disable trigger execution
+extern std::atomic<bool> TRIGGERS_ENABLED;
+
+// Return a map of room -> trigger url for given type ("high" or "low").
+std::map<std::string, std::string> get_all_trigger_urls(const std::string &type);
 // (TRIGGERS_LOG_FILE and SENSOR_DATA_JSON_FILE declared above)
 
 // Return all settings as JSON object string
@@ -89,5 +95,9 @@ bool set_trigger_url(const std::string &room, const std::string &type, const std
 bool get_room_settings(const std::string &room, double &desired, bool &has_desired, std::string &high_url, std::string &low_url);
 // Clear settings for a room
 bool delete_room_settings(const std::string &room);
+
+// Read settings JSON into map: room -> (optional desired, high, low)
+// Exposed for callers that need to inspect raw settings map.
+bool read_settings_map(std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> &out);
 
 #endif // STORAGE_H

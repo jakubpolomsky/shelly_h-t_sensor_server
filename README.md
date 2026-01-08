@@ -98,6 +98,32 @@ curl -X POST -d "room=living-room&url=https://example.com/high" http://localhost
 curl -X POST -d "room=living-room&url=https://example.com/low" http://localhost:8080/setLowTrigger
 ```
 
+### Trigger control (new)
+
+- Trigger all configured *high* URLs immediately:
+
+```bash
+curl -X POST http://localhost:8080/triggerAllHigh
+```
+
+- Trigger all configured *low* URLs immediately:
+
+```bash
+curl -X POST http://localhost:8080/triggerAllLow
+```
+
+- Disable automatic trigger execution:
+
+```bash
+curl -X POST http://localhost:8080/disableTriggers
+```
+
+- Enable automatic trigger execution:
+
+```bash
+curl -X POST http://localhost:8080/enableTriggers
+```
+
 ### GET (read-only):
 
 - Web UI / index:
@@ -154,7 +180,7 @@ curl -X DELETE http://localhost:8080/triggerLog
 - Sensor data: stored per-sensor under the `data/` directory (default). Each sensor has a single file with the last JSON payload.
 - Settings: stored in `settings.json` (repository root by default). This is the single canonical source for room settings.
 - Triggers: stored in `triggers.log` (repository root by default). This is the single source for log of triggers.
-- Triggers execution: uses `curl` in a background child process; ensure `curl` is installed on the host.
+- Triggers execution: performed in-process using `libcurl`; no external `curl` binary is required on the host.
 
 ## Behavior note
 

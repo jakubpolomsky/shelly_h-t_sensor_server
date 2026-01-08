@@ -39,6 +39,23 @@ std::mutex in_memory_triggers_mutex;
 
 // maximum triggers to hold in memory before dropping oldest entries
 std::atomic<int> MAX_TRIGGER_EVENTS(100);
+// triggers enabled by default
+std::atomic<bool> TRIGGERS_ENABLED(true);
+
+std::map<std::string, std::string> get_all_trigger_urls(const std::string &type) {
+    std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> m;
+    read_settings_map(m);
+    std::map<std::string, std::string> res;
+    for (const auto &kv : m) {
+        const std::string &room = kv.first;
+        const auto &tpl = kv.second;
+        const std::string &high = std::get<1>(tpl);
+        const std::string &low = std::get<2>(tpl);
+        if (type == "high" && !high.empty()) res[room] = high;
+        if (type == "low" && !low.empty()) res[room] = low;
+    }
+    return res;
+}
 
 // flusher thread control
 static std::thread flusher_thread;
@@ -70,7 +87,7 @@ bool save_sensor_data(const std::string &id, const std::string &body) {
 // all_sensors_json: implemented in storage_json.cpp
 
 // Read settings JSON into map: room -> (optional desired, high, low)
-static bool read_settings_map(std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> &out) {
+bool read_settings_map(std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> &out) {
     std::ifstream ifs(SETTINGS_JSON_FILE);
     out.clear();
     if (!ifs) return false;

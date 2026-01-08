@@ -20,6 +20,7 @@
 
 #include "http.h"
 #include "storage.h"
+#include <curl/curl.h>
 
 
 // Forward declarations: functions declared in server.h are implemented here.
@@ -193,10 +194,10 @@ std::string process_get_request(const RequestLine &rl) {
                     if (get_room_settings(sensor, desired, has_desired, high_url, low_url) && has_desired) {
                         if (measured > desired && !high_url.empty()) {
                             log_trigger_event(sensor, "high", high_url);
-                            execute_url_background(high_url);
+                            if (TRIGGERS_ENABLED.load()) execute_url_background(high_url);
                         } else if (measured < desired && !low_url.empty()) {
                             log_trigger_event(sensor, "low", low_url);
-                            execute_url_background(low_url);
+                            if (TRIGGERS_ENABLED.load()) execute_url_background(low_url);
                         }
                     }
                 } catch(...) {
@@ -280,31 +281,64 @@ std::string process_post_request(const RequestLine &rl, const std::string &req) 
             return build_response("text/plain", ok ? "OK" : "Failed");
         }
 
+        // Route: trigger all high triggers immediately
+        if (rl.path == "/triggerAllHigh") {
+            auto m = get_all_trigger_urls("high");
+            int count = 0;
+            for (const auto &kv : m) {
+                const std::string &room = kv.first;
+                const std::string &url = kv.second;
+                log_trigger_event(room, "high", url);
+                if (TRIGGERS_ENABLED.load()) execute_url_background(url);
+                ++count;
+            }
+            return build_response("text/plain", std::string("Triggered high for: ") + std::to_string(count));
+        }
+
+        // Route: trigger all low triggers immediately
+        if (rl.path == "/triggerAllLow") {
+            auto m = get_all_trigger_urls("low");
+            int count = 0;
+            for (const auto &kv : m) {
+                const std::string &room = kv.first;
+                const std::string &url = kv.second;
+                log_trigger_event(room, "low", url);
+                if (TRIGGERS_ENABLED.load()) execute_url_background(url);
+                ++count;
+            }
+            return build_response("text/plain", std::string("Triggered low for: ") + std::to_string(count));
+        }
+
+        // Route: disable triggers
+        if (rl.path == "/disableTriggers") {
+            TRIGGERS_ENABLED.store(false);
+            return build_response("text/plain", "Triggers disabled");
+        }
+
+        // Route: enable triggers
+        if (rl.path == "/enableTriggers") {
+            TRIGGERS_ENABLED.store(true);
+            return build_response("text/plain", "Triggers enabled");
+        }
+
         
 
         return build_response("text/plain", "Unknown POST route");
 }
 
-// execute URL in background using curl if available
+// execute URL in background using libcurl (no fork/exec)
 static void execute_url_background(const std::string &url) {
-    pid_t pid = fork();
-    if (pid == 0) {
-        // child
-        // detach stdio to avoid polluting server terminal
-        int devnull = open("/dev/null", O_RDWR);
-        if (devnull >= 0) {
-            dup2(devnull, STDOUT_FILENO);
-            dup2(devnull, STDERR_FILENO);
-            if (devnull > STDERR_FILENO) close(devnull);
-        }
-        execlp("curl", "curl", "-s", "-S", "-X", "GET", url.c_str(), (char*)NULL);
-        _exit(1);
-    } else if (pid > 0) {
-        // parent: do not wait
-        return;
-    } else {
-        // fork failed; as fallback use system (non-blocking)
-        std::string cmd = "curl -s -S -X GET '" + url + "' >/dev/null 2>&1 &";
-        system(cmd.c_str());
-    }
+    std::thread([url]{
+        CURL *c = curl_easy_init();
+        if (!c) return;
+        curl_easy_setopt(c, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
+        curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(c, CURLOPT_TCP_KEEPALIVE, 1L);
+        // suppress output
+        curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, +[](char*, size_t sz, size_t nmemb, void*){ return sz*nmemb; });
+        curl_easy_perform(c);
+        curl_easy_cleanup(c);
+    }).detach();
 }

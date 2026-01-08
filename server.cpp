@@ -21,6 +21,7 @@
 #include "server.h"
 #include "http.h"
 #include "storage.h"
+#include <curl/curl.h>
 
 
 static volatile sig_atomic_t keep_running = 1;
@@ -174,6 +175,8 @@ int main(int argc, char **argv) {
     MAX_TRIGGER_EVENTS.store(max_triggers);
     // load existing triggers from disk into memory (trimmed to max)
     load_triggers_from_disk();
+    // initialize libcurl (required for threaded use)
+    curl_global_init(CURL_GLOBAL_DEFAULT);
 
     std::cout << "Server running on http://localhost:" << port << "/";
     if (verbose) std::cout << "  (verbose)";
@@ -212,6 +215,8 @@ int main(int argc, char **argv) {
 
     close(server_fd);
     g_server_fd = -1;
+    // cleanup libcurl
+    curl_global_cleanup();
     return 0;
 }
 
