@@ -212,6 +212,9 @@ std::string process_get_request(const RequestLine &rl) {
         } else if (rl.path == "/triggers" || rl.path == "/triggerEvents") {
             std::string json = all_trigger_events_json();
             return build_response("application/json", json);
+        } else if (rl.path == "/triggersEnabled") {
+            std::string js = TRIGGERS_ENABLED.load() ? "{\"enabled\":true}" : "{\"enabled\":false}";
+            return build_response("application/json", js);
         } else if (rl.path == "/settings") {
             std::string json = all_settings_json();
             return build_response("application/json", json);

@@ -124,6 +124,12 @@ curl -X POST http://localhost:8080/disableTriggers
 curl -X POST http://localhost:8080/enableTriggers
 ```
 
+- Check whether trigger execution is enabled (returns JSON):
+
+```bash
+curl http://localhost:8080/triggersEnabled
+```
+
 ### GET (read-only):
 
 - Web UI / index:
