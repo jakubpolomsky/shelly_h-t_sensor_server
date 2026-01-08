@@ -43,6 +43,18 @@ std::string read_request(int client_fd) {
                 std::istringstream iss(cl_line);
                 std::string tmp;
                 iss >> tmp >> content_length;
+                // If client used Expect: 100-continue, send interim response so client will send body
+                std::string req_l = req;
+                std::transform(req_l.begin(), req_l.end(), req_l.begin(), [](unsigned char c){ return std::tolower(c); });
+                size_t expect_pos = req_l.find("expect:");
+                if (expect_pos != std::string::npos) {
+                    size_t expect_end = req_l.find('\r', expect_pos);
+                    std::string expect_line = req_l.substr(expect_pos, (expect_end==std::string::npos? req_l.size(): expect_end)-expect_pos);
+                    if (expect_line.find("100-continue") != std::string::npos) {
+                        const char *cont = "HTTP/1.1 100 Continue\r\n\r\n";
+                        send(client_fd, cont, strlen(cont), 0);
+                    }
+                }
                 size_t body_len = req.size() - (header_end + 4);
                 while ((int)body_len < content_length) {
                     received = recv(client_fd, buffer, sizeof(buffer), 0);
@@ -267,6 +279,8 @@ std::string process_post_request(const RequestLine &rl, const std::string &req) 
             bool ok = set_trigger_url(room, "low", url);
             return build_response("text/plain", ok ? "OK" : "Failed");
         }
+
+        
 
         return build_response("text/plain", "Unknown POST route");
 }

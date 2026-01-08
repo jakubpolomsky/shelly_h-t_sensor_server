@@ -33,6 +33,12 @@ std::string SENSOR_DATA_JSON_FILE = "sensor_data.json";
 // implemented in storage_json.cpp can access it.
 std::unordered_map<std::string, std::string> in_memory_readings;
 std::mutex in_memory_mutex;
+// in-memory queue for trigger events (to be flushed periodically)
+std::deque<std::string> in_memory_triggers;
+std::mutex in_memory_triggers_mutex;
+
+// maximum triggers to hold in memory before dropping oldest entries
+std::atomic<int> MAX_TRIGGER_EVENTS(100);
 
 // flusher thread control
 static std::thread flusher_thread;
@@ -162,35 +168,77 @@ void log_trigger_event(const std::string &sensor, const std::string &type, const
     obj += "\"type\":\"" + json_escape(type) + "\",";
     obj += "\"url\":\"" + json_escape(url) + "\"}";
 
-    std::string path = TRIGGERS_LOG_FILE;
-    // append line 
-    std::ofstream ofs(path, std::ios::app);
-    if (!ofs) return;
-    ofs << obj << "\n";
+    // push into in-memory trigger queue; flusher will persist to disk
+    {
+        std::lock_guard<std::mutex> lk(in_memory_triggers_mutex);
+        in_memory_triggers.push_back(obj);
+        // enforce maximum size (drop oldest)
+        int maxv = MAX_TRIGGER_EVENTS.load();
+        while ((int)in_memory_triggers.size() > maxv) in_memory_triggers.pop_front();
+    }
 }
 
 std::string all_trigger_events_json() {
-    std::string path = TRIGGERS_LOG_FILE;
-    std::ifstream ifs(path);
-    if (!ifs) return std::string("[]");
-    std::string line;
+    // Read persisted file entries first
     std::ostringstream out;
     out << "[";
     bool first = true;
-    while (std::getline(ifs, line)) {
-        if (line.empty()) continue;
-        if (!first) out << ",";
-        first = false;
-        out << line;
+    std::ifstream ifs(TRIGGERS_LOG_FILE);
+    if (ifs) {
+        std::string line;
+        while (std::getline(ifs, line)) {
+            if (line.empty()) continue;
+            if (!first) out << ",";
+            first = false;
+            out << line;
+        }
+    }
+    // Append in-memory (not-yet-flushed) trigger events
+    {
+        std::lock_guard<std::mutex> lk(in_memory_triggers_mutex);
+        for (const auto &t : in_memory_triggers) {
+            if (!first) out << ",";
+            first = false;
+            out << t;
+        }
     }
     out << "]";
     return out.str();
 }
 
 bool clear_trigger_events_log() {
-    std::string path = TRIGGERS_LOG_FILE;
-    std::ofstream ofs(path, std::ios::trunc);
-    return ofs.good();
+    // clear persisted file
+    std::ofstream ofs(TRIGGERS_LOG_FILE, std::ios::trunc);
+    bool ok = ofs.good();
+    // clear in-memory queue as well
+    {
+        std::lock_guard<std::mutex> lk(in_memory_triggers_mutex);
+        in_memory_triggers.clear();
+    }
+    return ok;
+}
+
+void load_triggers_from_disk() {
+    std::deque<std::string> loaded;
+    std::ifstream ifs(TRIGGERS_LOG_FILE);
+    if (ifs) {
+        std::string line;
+        while (std::getline(ifs, line)) {
+            if (line.empty()) continue;
+            loaded.push_back(line);
+        }
+    }
+    int maxv = MAX_TRIGGER_EVENTS.load();
+    if (maxv > 0 && (int)loaded.size() > maxv) {
+        std::deque<std::string> tmp;
+        size_t start = loaded.size() - maxv;
+        for (size_t i = start; i < loaded.size(); ++i) tmp.push_back(loaded[i]);
+        loaded.swap(tmp);
+    }
+    {
+        std::lock_guard<std::mutex> lk(in_memory_triggers_mutex);
+        in_memory_triggers = std::move(loaded);
+    }
 }
 
 

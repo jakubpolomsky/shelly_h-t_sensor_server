@@ -243,4 +243,52 @@ void flush_readings_to_disk() {
     std::error_code ec;
     std::filesystem::rename(tmp, SENSOR_DATA_JSON_FILE, ec);
     if (ec) std::rename(tmp.c_str(), SENSOR_DATA_JSON_FILE.c_str());
+
+    // Flush pending trigger events (append) and clear in-memory queue
+        std::deque<std::string> pending;
+    {
+        std::lock_guard<std::mutex> lk(in_memory_triggers_mutex);
+        pending.swap(in_memory_triggers);
+    }
+    if (!pending.empty()) {
+        // read existing persisted triggers
+        std::deque<std::string> existing;
+        std::ifstream ifs2(TRIGGERS_LOG_FILE);
+        if (ifs2) {
+            std::string line;
+            while (std::getline(ifs2, line)) {
+                if (line.empty()) continue;
+                existing.push_back(line);
+            }
+        }
+        // append pending in-memory events
+        for (const auto &line : pending) existing.push_back(line);
+
+        // trim to keep only latest MAX_TRIGGER_EVENTS entries
+        int maxv = MAX_TRIGGER_EVENTS.load();
+        if (maxv > 0 && (int)existing.size() > maxv) {
+            std::deque<std::string> tmp;
+            size_t start = existing.size() - maxv;
+            for (size_t i = start; i < existing.size(); ++i) tmp.push_back(existing[i]);
+            existing.swap(tmp);
+        }
+
+        // atomic write the trimmed list back to disk
+        std::filesystem::path tp(TRIGGERS_LOG_FILE);
+        auto parent = tp.parent_path();
+        if (!parent.empty()) std::filesystem::create_directories(parent);
+        std::string ttmp = TRIGGERS_LOG_FILE + ".tmp";
+        std::ofstream ofs2(ttmp, std::ios::trunc);
+        if (ofs2) {
+            for (const auto &line : existing) ofs2 << line << "\n";
+            ofs2.close();
+            std::error_code ec2;
+            std::filesystem::rename(ttmp, TRIGGERS_LOG_FILE, ec2);
+            if (ec2) std::rename(ttmp.c_str(), TRIGGERS_LOG_FILE.c_str());
+        } else {
+            // write failed: requeue pending back into memory
+            std::lock_guard<std::mutex> lk(in_memory_triggers_mutex);
+            for (const auto &line : pending) in_memory_triggers.push_back(line);
+        }
+    }
 }

@@ -23,6 +23,7 @@
 #include <condition_variable>
 #include <atomic>
 #include <chrono>
+#include <deque>
 
 // Path to JSON settings file (stores room settings)
 extern std::string SETTINGS_JSON_FILE;
@@ -37,6 +38,13 @@ extern std::string SENSOR_DATA_JSON_FILE;
 // Exposed so JSON helpers can access and merge with disk state.
 extern std::unordered_map<std::string, std::string> in_memory_readings;
 extern std::mutex in_memory_mutex;
+// In-memory queue for trigger events (each item is a JSON object string)
+// In-memory queue for trigger events (each item is a JSON object string)
+extern std::deque<std::string> in_memory_triggers;
+extern std::mutex in_memory_triggers_mutex;
+
+// Maximum number of trigger events kept in memory before older events are dropped.
+extern std::atomic<int> MAX_TRIGGER_EVENTS;
 // (TRIGGERS_LOG_FILE and SENSOR_DATA_JSON_FILE declared above)
 
 // Return all settings as JSON object string
@@ -58,6 +66,9 @@ void log_trigger_event(const std::string &sensor, const std::string &type, const
 std::string all_trigger_events_json();
 // Clear all trigger events log
 bool clear_trigger_events_log();
+
+// Load trigger events from disk into the in-memory queue (keeps only latest `MAX_TRIGGER_EVENTS`)
+void load_triggers_from_disk();
 
 // Sensor data storage utilities
 // - sanitize_id: produce safe filename/id from arbitrary input

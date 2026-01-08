@@ -68,6 +68,7 @@ int main(int argc, char **argv) {
         std::cout << "  -h, -help, --help       Show this help message\n";
         std::cout << "  -v, -verbose, --verbose Enable verbose request logging\n";
         std::cout << "  -i, --flush-interval <seconds>  Periodic flush interval in seconds (default 3600)\n";
+        std::cout << "  -m, --max-triggers <n>         Maximum in-memory trigger events to keep (default 100)\n";
         std::cout << "Arguments:\n";
         std::cout << "  port                   Optional TCP port to listen on (default " << DEFAULT_PORT << ")\n";
     };
@@ -75,6 +76,7 @@ int main(int argc, char **argv) {
     int port = DEFAULT_PORT;
     bool verbose = false;
     int flush_interval = 3600; // seconds
+    int max_triggers = 100;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-h" || a == "-help" || a == "--help") {
@@ -97,6 +99,21 @@ int main(int argc, char **argv) {
                 return 1;
             }
             flush_interval = static_cast<int>(v);
+            ++i;
+            continue;
+        }
+        if (a == "-m" || a == "--max-triggers") {
+            if (i + 1 >= argc) {
+                std::cerr << "Missing value for " << a << "\n";
+                return 1;
+            }
+            char *endptr = nullptr;
+            long v = strtol(argv[i+1], &endptr, 10);
+            if (endptr == argv[i+1] || *endptr != '\0' || v <= 0) {
+                std::cerr << "Invalid max-triggers value: " << argv[i+1] << "\n";
+                return 1;
+            }
+            max_triggers = static_cast<int>(v);
             ++i;
             continue;
         }
@@ -153,10 +170,15 @@ int main(int argc, char **argv) {
 
     // start periodic flusher
     start_periodic_flusher(flush_interval);
+    // apply configured max triggers
+    MAX_TRIGGER_EVENTS.store(max_triggers);
+    // load existing triggers from disk into memory (trimmed to max)
+    load_triggers_from_disk();
 
     std::cout << "Server running on http://localhost:" << port << "/";
     if (verbose) std::cout << "  (verbose)";
     std::cout << "  (flush-interval=" << flush_interval << "s)";
+    std::cout << "  (max-triggers=" << max_triggers << ")";
     std::cout << "\n";
     while (keep_running) {
         int client_fd = accept(server_fd, nullptr, nullptr);

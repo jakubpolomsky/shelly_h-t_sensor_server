@@ -51,7 +51,7 @@ void test_storage_roundtrip() {
     string read = read_sensor_data(id);
     assert(read == payload);
     // flush in-memory readings to disk and verify consolidated JSON file
-    SENSOR_DATA_JSON_FILE = "/sensor_data.json";
+    SENSOR_DATA_JSON_FILE = "./sensor_data.json";
     flush_readings_to_disk();
     std::ifstream ifs(SENSOR_DATA_JSON_FILE);
     assert(ifs && "Consolidated sensor_data.json should exist after flush");
@@ -68,7 +68,7 @@ void test_storage_roundtrip() {
 
 void test_settings() {
     // place settings inside test_data for isolation
-    SETTINGS_JSON_FILE =  + "/settings.json";
+    SETTINGS_JSON_FILE = "./settings.json";
 
     string room = "living-room";
     // set desired temp
