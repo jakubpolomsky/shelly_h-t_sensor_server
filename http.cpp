@@ -136,8 +136,8 @@ std::string process_request_and_build_response(const std::string &req) {
 
 std::string process_get_request(const RequestLine &rl) {
     if (rl.path == "/" || rl.path == "") {
-            std::string body = list_all_sensors_html();
-            return build_response("text/html", body);
+            std::string body = all_sensors_json();
+            return build_response("application/json", body);
         } else if (rl.path.rfind("/sensor/", 0) == 0) {
             std::string id = rl.path.substr(std::string("/sensor/").size());
             std::string data = read_sensor_data(id);
@@ -209,8 +209,8 @@ std::string process_get_request(const RequestLine &rl) {
             if (js.empty()) return std::string("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
             return build_response("application/json", js);
         } else {
-            std::string body = list_all_sensors_html();
-            return build_response("text/html", body);
+            std::string body = all_sensors_json();
+            return build_response("application/json", body);
         }
 }
 

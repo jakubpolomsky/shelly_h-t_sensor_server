@@ -44,40 +44,31 @@ void test_sanitize_id() {
 }
 
 void test_storage_roundtrip() {
-    // use a temp test directory
-    DATA_DIR = "test_data";
-    if (fs::exists(DATA_DIR)) fs::remove_all(DATA_DIR);
-    bool ok = ensure_data_dir_exists();
-    assert(ok);
-
     string id = "sensor-test";
     string payload = "{\"timestamp\":\"t\",\"sensor\":\"sensor-test\",\"temp\":\"22.5\"}";
     bool wrote = save_sensor_data(id, payload);
     assert(wrote);
     string read = read_sensor_data(id);
     assert(read == payload);
-    // flush in-memory readings to disk and verify file exists
+    // flush in-memory readings to disk and verify consolidated JSON file
+    SENSOR_DATA_JSON_FILE = "/sensor_data.json";
     flush_readings_to_disk();
-    std::ifstream ifs(DATA_DIR + "/" + id + ".txt");
-    assert(ifs && "Sensor file should exist after flush");
+    std::ifstream ifs(SENSOR_DATA_JSON_FILE);
+    assert(ifs && "Consolidated sensor_data.json should exist after flush");
     std::ostringstream tmpbuf; tmpbuf << ifs.rdbuf();
-    assert(tmpbuf.str() == payload);
+    std::string file_contents = tmpbuf.str();
+    // should contain the sensor key and the payload
+    assert(file_contents.find("\"sensor-test\":") != string::npos);
+    assert(file_contents.find(payload) != string::npos);
 
     string all = all_sensors_json();
     // should contain "sensor-test":{...}
     assert(all.find("\"sensor-test\":") != string::npos);
-
-    // cleanup
-    fs::remove_all(DATA_DIR);
 }
 
 void test_settings() {
-    DATA_DIR = "test_data";
-    if (fs::exists(DATA_DIR)) fs::remove_all(DATA_DIR);
-    bool ok = ensure_data_dir_exists();
-    assert(ok);
     // place settings inside test_data for isolation
-    SETTINGS_JSON_FILE = DATA_DIR + "/settings.json";
+    SETTINGS_JSON_FILE =  + "/settings.json";
 
     string room = "living-room";
     // set desired temp
@@ -95,9 +86,6 @@ void test_settings() {
     assert(desired == 21.5);
     assert(high == "http://example.com/high");
     assert(low == "http://example.com/low");
-
-    // cleanup
-    fs::remove_all(DATA_DIR);
 }
 
 int main() {

@@ -19,19 +19,20 @@
  */
 
 #include "storage.h"
+#include "storage_json.h"
 
-
-
-// define DATA_DIR default
-std::string DATA_DIR = "data";
 // define SETTINGS_JSON_FILE default
 std::string SETTINGS_JSON_FILE = "settings.json";
-// define TRIGGERS_LOG_FILE default (kept outside of DATA_DIR)
+// define TRIGGERS_LOG_FILE default
 std::string TRIGGERS_LOG_FILE = "triggers.log";
+// define SENSOR_DATA_JSON_FILE default
+std::string SENSOR_DATA_JSON_FILE = "sensor_data.json";
 
 // in-memory cache for latest readings (sensor id -> JSON payload)
-static std::unordered_map<std::string, std::string> in_memory_readings;
-static std::mutex in_memory_mutex;
+// defined here and exposed via `extern` in storage.h so JSON helpers
+// implemented in storage_json.cpp can access it.
+std::unordered_map<std::string, std::string> in_memory_readings;
+std::mutex in_memory_mutex;
 
 // flusher thread control
 static std::thread flusher_thread;
@@ -39,15 +40,6 @@ static std::atomic<bool> flusher_running(false);
 static std::condition_variable flusher_cv;
 static std::mutex flusher_mutex;
 static int flusher_interval_seconds = 3600; // default: 1 hour
-
-bool ensure_data_dir_exists() {
-    struct stat st{};
-    if (stat(DATA_DIR.c_str(), &st) == 0) {
-        return S_ISDIR(st.st_mode);
-    }
-    if (mkdir(DATA_DIR.c_str(), 0755) == 0) return true;
-    return false;
-}
 
 std::string sanitize_id(const std::string &id) {
     std::string out;
@@ -66,94 +58,10 @@ bool save_sensor_data(const std::string &id, const std::string &body) {
     return true;
 }
 
-std::string read_sensor_data(const std::string &id) {
-    std::string sid = sanitize_id(id);
-    {
-        std::lock_guard<std::mutex> lk(in_memory_mutex);
-        auto it = in_memory_readings.find(sid);
-        if (it != in_memory_readings.end()) return it->second;
-    }
-    // fallback to disk
-    std::string path = DATA_DIR + "/" + sid + ".txt";
-    std::ifstream ifs(path);
-    if (!ifs) return std::string();
-    std::ostringstream ss;
-    ss << ifs.rdbuf();
-    return ss.str();
-}
-
-std::string list_all_sensors_html() {
-    std::ostringstream html;
-    html << "<html><body><h1>Sensors</h1><ul>";
-    // collect ids from disk and in-memory
-    std::unordered_set<std::string> ids;
-    DIR *d = opendir(DATA_DIR.c_str());
-    if (d) {
-        struct dirent *entry;
-        while ((entry = readdir(d)) != nullptr) {
-            std::string name = entry->d_name;
-            if (name == "." || name == "..") continue;
-            if (name.size() > 4 && name.substr(name.size()-4) == ".txt") {
-                std::string id = name.substr(0, name.size()-4);
-                ids.insert(id);
-            }
-        }
-        closedir(d);
-    }
-    {
-        std::lock_guard<std::mutex> lk(in_memory_mutex);
-        for (const auto &kv : in_memory_readings) ids.insert(kv.first);
-    }
-    for (const auto &id : ids) {
-        std::string data = read_sensor_data(id);
-        html << "<li><a href=\"/sensor/" << id << "\">" << id << "</a><pre>" << data << "</pre></li>";
-    }
-    html << "</ul></body></html>";
-    return html.str();
-}
+// read_sensor_data: implemented in storage_json.cpp
 
 // Return a JSON object mapping sensor id -> stored JSON payload
-std::string all_sensors_json() {
-    // Merge in-memory readings (take precedence) with disk readings
-    std::ostringstream out;
-    out << "{";
-    bool first = true;
-    // in-memory first
-    {
-        std::lock_guard<std::mutex> lk(in_memory_mutex);
-        for (const auto &kv : in_memory_readings) {
-            if (!first) out << ",";
-            first = false;
-            out << "\"" << kv.first << "\":" << kv.second;
-        }
-    }
-    // then disk entries not present in memory
-    DIR *d = opendir(DATA_DIR.c_str());
-    if (d) {
-        struct dirent *entry;
-        while ((entry = readdir(d)) != nullptr) {
-            std::string name = entry->d_name;
-            if (name == "." || name == "..") continue;
-            if (name.size() > 4 && name.substr(name.size()-4) == ".txt") {
-                std::string id = name.substr(0, name.size()-4);
-                {
-                    std::lock_guard<std::mutex> lk(in_memory_mutex);
-                    if (in_memory_readings.find(id) != in_memory_readings.end()) continue;
-                }
-                std::string data = read_sensor_data(id);
-                if (data.empty()) continue;
-                size_t json_pos = data.find('{');
-                std::string json_val = (json_pos != std::string::npos) ? data.substr(json_pos) : data;
-                if (!first) out << ",";
-                first = false;
-                out << "\"" << id << "\":" << json_val;
-            }
-        }
-        closedir(d);
-    }
-    out << "}";
-    return out.str();
-}
+// all_sensors_json: implemented in storage_json.cpp
 
 // Read settings JSON into map: room -> (optional desired, high, low)
 static bool read_settings_map(std::map<std::string, std::tuple<std::optional<double>, std::string, std::string>> &out) {
@@ -241,47 +149,7 @@ static bool write_settings_map(const std::map<std::string, std::tuple<std::optio
     return true;
 }
 
-// Flush current in-memory readings to disk (atomic per-file)
-void flush_readings_to_disk() {
-    if (!ensure_data_dir_exists()) return;
-    std::unordered_map<std::string,std::string> copy;
-    {
-        std::lock_guard<std::mutex> lk(in_memory_mutex);
-        copy = in_memory_readings;
-    }
-    for (const auto &kv : copy) {
-        std::string sid = kv.first;
-        std::string path = DATA_DIR + "/" + sid + ".txt";
-        std::string tmp = path + ".tmp";
-        std::ofstream ofs(tmp, std::ios::trunc);
-        if (!ofs) continue;
-        ofs << kv.second;
-        ofs.close();
-        std::error_code ec;
-        std::filesystem::rename(tmp, path, ec);
-        if (ec) {
-            std::rename(tmp.c_str(), path.c_str());
-        }
-    }
-}
-
-// helper: escape JSON string
-static std::string json_escape(const std::string &s) {
-    std::string o; o.reserve(s.size()*2);
-    for (char c : s) {
-        switch (c) {
-            case '"': o += "\\\""; break;
-            case '\\': o += "\\\\"; break;
-            case '\b': o += "\\b"; break;
-            case '\f': o += "\\f"; break;
-            case '\n': o += "\\n"; break;
-            case '\r': o += "\\r"; break;
-            case '\t': o += "\\t"; break;
-            default: o.push_back(c);
-        }
-    }
-    return o;
-}
+// flush_readings_to_disk: implemented in storage_json.cpp
 
 void log_trigger_event(const std::string &sensor, const std::string &type, const std::string &url) {
     auto now = std::chrono::system_clock::now();
@@ -295,7 +163,7 @@ void log_trigger_event(const std::string &sensor, const std::string &type, const
     obj += "\"url\":\"" + json_escape(url) + "\"}";
 
     std::string path = TRIGGERS_LOG_FILE;
-    // append line (file located outside of DATA_DIR)
+    // append line 
     std::ofstream ofs(path, std::ios::app);
     if (!ofs) return;
     ofs << obj << "\n";

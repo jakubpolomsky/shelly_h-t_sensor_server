@@ -14,8 +14,9 @@ data/
 bruno/
 bruno/*
 
-# Settings file
+# Json files
 settings.json
+sensor_data.json
 
 # log files
 triggers.log

@@ -24,20 +24,31 @@
 #include <atomic>
 #include <chrono>
 
-// Data directory used for storage; defined in storage.cpp
-extern std::string DATA_DIR;
-// Path to JSON settings file
+// Path to JSON settings file (stores room settings)
 extern std::string SETTINGS_JSON_FILE;
+
+// Path to triggers log file (line-separated JSON objects)
+extern std::string TRIGGERS_LOG_FILE;
+
+// Path to single JSON file storing all sensor readings (new consolidated storage)
+extern std::string SENSOR_DATA_JSON_FILE;
+
+// In-memory cache for latest readings (sensor id -> JSON payload)
+// Exposed so JSON helpers can access and merge with disk state.
+extern std::unordered_map<std::string, std::string> in_memory_readings;
+extern std::mutex in_memory_mutex;
+// (TRIGGERS_LOG_FILE and SENSOR_DATA_JSON_FILE declared above)
 
 // Return all settings as JSON object string
 std::string all_settings_json();
 // Return settings for a single room as JSON string (empty if not found)
 std::string room_settings_json(const std::string &room);
 
-// Periodic flush control: start background flusher that writes in-memory readings to disk every `seconds`.
+// Periodic flusher: writes in-memory sensor readings to disk at an interval.
 void start_periodic_flusher(int seconds);
 void stop_periodic_flusher();
-// Force immediate flush to disk
+
+// Force immediate flush of in-memory readings to disk (atomic).
 void flush_readings_to_disk();
 
 // Trigger event logging
@@ -49,11 +60,13 @@ std::string all_trigger_events_json();
 bool clear_trigger_events_log();
 
 // Sensor data storage utilities
-bool ensure_data_dir_exists();
+// - sanitize_id: produce safe filename/id from arbitrary input
+// - save_sensor_data: store latest reading in memory (flusher persists to disk)
+// - read_sensor_data: return latest reading (prefer in-memory, then file)
+// - all_sensors_json: return JSON mapping sensor id -> payload
 std::string sanitize_id(const std::string &id);
 bool save_sensor_data(const std::string &id, const std::string &body);
 std::string read_sensor_data(const std::string &id);
-std::string list_all_sensors_html();
 std::string all_sensors_json();
 
 // Settings stored in a single file (per requirement)
