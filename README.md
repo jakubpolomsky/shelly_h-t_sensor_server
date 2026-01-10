@@ -43,7 +43,7 @@ Options:
 - `./server 8000` — run on port 8000
 - `./server -v` — enable verbose request logging
 - `./server -i 3600` — set flush interval (seconds), default 3600
-- `./server -m 100` — set maximum entries of triggered actions, default 3600
+- `./server -m 100` — set maximum entries of triggered actions, default 100
 
 Examples:
 
