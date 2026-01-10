@@ -38,27 +38,12 @@ Simple C++ HTTP server for receiving and serving sensor data.
 - Exposes read-only endpoints to fetch sensor data and settings.
 - Supports per-room desired temperature and trigger URLs (high/low) executed in background.
 
-## Build
-
-Requires a C++17 compiler (g++). From the project root:
-
-```bash
-make
-```
-
-## Run
-
-Default (port 8080):
-
-```bash
-./server
-```
-
 Options:
 
 - `./server 8000` — run on port 8000
 - `./server -v` — enable verbose request logging
 - `./server -i 3600` — set flush interval (seconds), default 3600
+- `./server -m 100` — set maximum entries of triggered actions, default 3600
 
 Examples:
 
@@ -183,7 +168,7 @@ curl -X DELETE http://localhost:8080/triggerLog
 
 ## Storage details
 
-- Sensor data: stored per-sensor under the `data/` directory (default). Each sensor has a single file with the last JSON payload.
+- Sensor data: stored in `settings.json` (repository root by default). This is the single source for last sensor readings.
 - Settings: stored in `settings.json` (repository root by default). This is the single canonical source for room settings.
 - Triggers: stored in `triggers.log` (repository root by default). This is the single source for log of triggers.
 - Triggers execution: performed in-process using `libcurl`; no external `curl` binary is required on the host.
