@@ -21,6 +21,8 @@
 #include "http.h"
 #include "storage.h"
 #include <curl/curl.h>
+#include <set>
+#include <algorithm>
 
 
 // Forward declarations: functions declared in server.h are implemented here.
@@ -134,6 +136,59 @@ std::string build_response(const std::string &content_type, const std::string &b
     return resp.str();
 }
 
+// Determine allowed methods for a given request path
+static std::string get_allowed_methods_for_path(const RequestLine &rl) {
+    std::set<std::string> methods;
+    methods.insert("OPTIONS");
+    if (rl.path == "/" || rl.path.empty() || rl.path == "/sensors" || rl.path.rfind("/sensor/", 0) == 0 || rl.path == "/triggers" || rl.path == "/settings") {
+        methods.insert("GET");
+    }
+    if (rl.path.rfind("/settings", 0) == 0 || rl.path == "/settings") {
+        methods.insert("DELETE");
+    }
+    if (rl.path == "/setDesiredTemperature" || rl.path == "/setHighTrigger" || rl.path == "/setLowTrigger" || rl.path == "/triggerAllHigh" || rl.path == "/triggerAllLow" || rl.path == "/disableTriggers" || rl.path == "/enableTriggers") {
+        methods.insert("POST");
+    }
+    if (rl.path == "/triggerLog") methods.insert("DELETE");
+
+    std::string out;
+    for (const auto &m : methods) {
+        if (!out.empty()) out += ", ";
+        out += m;
+    }
+    return out;
+}
+
+// Build an OPTIONS response with Allow and CORS headers
+static std::string process_options_request(const RequestLine &rl, const std::string &req) {
+    std::string allow = get_allowed_methods_for_path(rl);
+    // find Access-Control-Request-Headers if present
+    std::string acrh;
+    std::string lower = req;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c){ return std::tolower(c); });
+    size_t pos = lower.find("access-control-request-headers:");
+    if (pos != std::string::npos) {
+        size_t eol = lower.find('\r', pos);
+        if (eol == std::string::npos) eol = lower.find('\n', pos);
+        size_t start = pos + std::string("access-control-request-headers:").size();
+        acrh = req.substr(start, (eol==std::string::npos? req.size(): eol) - start);
+        while (!acrh.empty() && (acrh.front()==' ' || acrh.front()=='\t')) acrh.erase(acrh.begin());
+        while (!acrh.empty() && (acrh.back()==' ' || acrh.back()=='\t' || acrh.back()=='\r' || acrh.back()=='\n')) acrh.pop_back();
+    }
+
+    std::ostringstream resp;
+    resp << "HTTP/1.1 204 No Content\r\n";
+    resp << "Allow: " << allow << "\r\n";
+    resp << "Content-Length: 0\r\n";
+    resp << "Access-Control-Allow-Origin: *\r\n";
+    resp << "Access-Control-Allow-Methods: " << allow << "\r\n";
+    if (!acrh.empty()) resp << "Access-Control-Allow-Headers: " << acrh << "\r\n";
+    else resp << "Access-Control-Allow-Headers: Content-Type, Accept\r\n";
+    resp << "Access-Control-Max-Age: 3600\r\n";
+    resp << "\r\n";
+    return resp.str();
+}
+
 std::string process_request_and_build_response(const std::string &req) {
     RequestLine rl = parse_request_line(req);
     
@@ -143,6 +198,8 @@ std::string process_request_and_build_response(const std::string &req) {
         return process_post_request(rl, req);
     } else if (rl.method == "DELETE") {
         return process_delete_request(rl);
+    } else if (rl.method == "OPTIONS") {
+        return process_options_request(rl, req);
     }
 
     return std::string("HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n");

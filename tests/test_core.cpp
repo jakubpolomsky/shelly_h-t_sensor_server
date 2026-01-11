@@ -88,12 +88,67 @@ void test_settings() {
     assert(low == "http://example.com/low");
 }
 
+static void assert_contains(const std::string &haystack, const std::string &needle) {
+    if (haystack.find(needle) == std::string::npos) {
+        std::cerr << "Expected to find: [" << needle << "]\nIn response:\n" << haystack << '\n';
+        assert(false);
+    }
+}
+
+void test_options_preflight() {
+    // 1) Known endpoint should advertise GET + OPTIONS and echo requested headers
+    {
+        std::string req =
+            "OPTIONS /sensors HTTP/1.1\r\n"
+            "Host: localhost\r\n"
+            "Origin: http://example.com\r\n"
+            "Access-Control-Request-Method: GET\r\n"
+            "Access-Control-Request-Headers: X-Test, Content-Type\r\n"
+            "\r\n";
+        std::string resp = process_request_and_build_response(req);
+        assert_contains(resp, "HTTP/1.1 204 No Content\r\n");
+        assert_contains(resp, "Allow: GET, OPTIONS\r\n");
+        assert_contains(resp, "Access-Control-Allow-Origin: *\r\n");
+        assert_contains(resp, "Access-Control-Allow-Methods: GET, OPTIONS\r\n");
+        assert_contains(resp, "Access-Control-Allow-Headers: X-Test, Content-Type\r\n");
+    }
+
+    // 2) Unknown endpoint should still allow OPTIONS only and fall back to default allow-headers
+    {
+        std::string req =
+            "OPTIONS /does-not-exist HTTP/1.1\r\n"
+            "Host: localhost\r\n"
+            "Origin: http://example.com\r\n"
+            "\r\n";
+        std::string resp = process_request_and_build_response(req);
+        assert_contains(resp, "HTTP/1.1 204 No Content\r\n");
+        assert_contains(resp, "Allow: OPTIONS\r\n");
+        assert_contains(resp, "Access-Control-Allow-Methods: OPTIONS\r\n");
+        assert_contains(resp, "Access-Control-Allow-Headers: Content-Type, Accept\r\n");
+    }
+
+    // 3) POST-only route should advertise POST + OPTIONS
+    {
+        std::string req =
+            "OPTIONS /setDesiredTemperature HTTP/1.1\r\n"
+            "Host: localhost\r\n"
+            "Origin: http://example.com\r\n"
+            "Access-Control-Request-Method: POST\r\n"
+            "\r\n";
+        std::string resp = process_request_and_build_response(req);
+        assert_contains(resp, "HTTP/1.1 204 No Content\r\n");
+        assert_contains(resp, "Allow: OPTIONS, POST\r\n");
+        assert_contains(resp, "Access-Control-Allow-Methods: OPTIONS, POST\r\n");
+    }
+}
+
 int main() {
     try {
         test_parse_query();
         test_sanitize_id();
         test_storage_roundtrip();
         test_settings();
+        test_options_preflight();
         cout << "All tests passed\n";
         return 0;
     } catch (const std::exception &e) {
