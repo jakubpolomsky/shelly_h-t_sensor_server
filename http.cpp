@@ -128,6 +128,7 @@ std::string build_response(const std::string &content_type, const std::string &b
     resp << "HTTP/1.1 200 OK\r\n"
          << "Content-Type: " << content_type << "\r\n"
          << "Content-Length: " << body.size() << "\r\n"
+         << "Access-Control-Allow-Origin: *\r\n"
          << "\r\n"
          << body;
     return resp.str();
